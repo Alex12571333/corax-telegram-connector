@@ -80,7 +80,9 @@ INPUT_SCHEMA = {
         "operation": {"type": "string"},
         "chat_id": {},
         "text": {"type": "string"},
-        "message_id": {"type": "integer"},
+        # message_id is null until the first message exists (streaming's first
+        # edit), so it must accept null — the kernel validates input by type.
+        "message_id": {},
         "format": {"type": "string"},
         "reply_to": {"type": "integer"},
         "disable_preview": {"type": "boolean"},

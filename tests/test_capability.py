@@ -204,7 +204,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("unsupported operation", result.error.message)
 
     async def test_schema_type_error(self) -> None:
-        result = await self.cap.execute(request({"operation": "send", "message_id": "no"}))
+        result = await self.cap.execute(request({"operation": "poll", "timeout": "soon"}))
         self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
 
     # -- send ----------------------------------------------------------- #
@@ -664,6 +664,23 @@ class OutputSchemaTests(unittest.IsolatedAsyncioTestCase):
     async def test_describe_payload_is_schema_clean(self) -> None:
         result = await self.cap.execute(request({"operation": "describe"}))
         self._assert_schema_clean(result.payload)
+
+    async def test_gateway_stream_input_is_schema_clean(self) -> None:
+        # The gateway's first streaming edit sends message_id=None; the kernel
+        # validates input by type, so the input_schema must accept it.
+        from agent_core import schema as core_schema
+
+        gateway_input = {
+            "operation": "stream",
+            "chat_id": 7,
+            "message_id": None,
+            "text": "partial",
+            "last_sent_text": "",
+            "elapsed_ms": 700,
+            "done": False,
+            "state_key": "_invoke_output",
+        }
+        self.assertEqual(core_schema.validate(gateway_input, self.cap.input_schema), [])
 
 
 if __name__ == "__main__":

@@ -29,9 +29,7 @@
       "text": {
         "type": "string"
       },
-      "message_id": {
-        "type": "integer"
-      },
+      "message_id": {},
       "format": {
         "type": "string"
       },
