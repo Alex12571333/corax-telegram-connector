@@ -397,28 +397,50 @@ class TelegramConnector(Capability):
             if handler is None:
                 raise ValueError(f"unsupported operation {operation!r}")
             result = handler(request, data)
-            # Optional: mirror the payload into core session state so a
-            # kernel-driven caller (the agent gateway) can read it back via the
-            # StateManager. Off unless a non-empty ``state_key`` is given.
-            state_key = data.get("state_key")
-            if isinstance(state_key, str) and state_key and result.is_success:
-                result.state_patch = {state_key: result.payload}
-            return result
+            return self._echo_state(result, data)
         except ValueError as exc:
-            return _fail(request, ErrorCode.INVALID_INPUT, str(exc))
+            return self._echo_state(_fail(request, ErrorCode.INVALID_INPUT, str(exc)), data)
         except _SecurityError as exc:
-            return _fail(
-                request,
-                ErrorCode.POLICY_DENIED,
-                f"request rejected by capability security rules: {exc}",
-                status=ResultStatus.POLICY_DENIED,
+            return self._echo_state(
+                _fail(
+                    request,
+                    ErrorCode.POLICY_DENIED,
+                    f"request rejected by capability security rules: {exc}",
+                    status=ResultStatus.POLICY_DENIED,
+                ),
+                data,
             )
         except Exception:
-            return _fail(
-                request,
-                ErrorCode.CAPABILITY_FAILED,
-                "telegram connector failed before completing the request",
+            return self._echo_state(
+                _fail(
+                    request,
+                    ErrorCode.CAPABILITY_FAILED,
+                    "telegram connector failed before completing the request",
+                ),
+                data,
             )
+
+    @staticmethod
+    def _echo_state(result: Result, data: dict[str, Any]) -> Result:
+        """Mirror the outcome into ``state_patch`` when a ``state_key`` is given.
+
+        On success the payload is echoed; on failure the error is echoed, so a
+        kernel-driven caller (the gateway) can read *why* a task failed back
+        through the core StateManager.
+        """
+        state_key = data.get("state_key")
+        if not (isinstance(state_key, str) and state_key):
+            return result
+        if result.is_success:
+            result.state_patch = {state_key: result.payload}
+        elif result.error is not None:
+            result.state_patch = {
+                state_key: {
+                    "_error": result.error.message,
+                    "_details": result.error.details,
+                }
+            }
+        return result
 
     # -- operations ------------------------------------------------------ #
     def _send(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:

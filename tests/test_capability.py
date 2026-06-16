@@ -602,16 +602,24 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, ResultStatus.SUCCESS)
         self.assertEqual(result.state_patch, {"out": result.payload})
 
-    async def test_state_key_ignored_on_failure(self) -> None:
+    async def test_state_key_echoes_error_on_failure(self) -> None:
         result = await self.cap.execute(
             request({"operation": "send", "text": "hi", "mock": True, "state_key": "out"})
         )
         self.assertEqual(result.status, ResultStatus.ERROR)  # missing chat_id
-        self.assertEqual(result.state_patch, {})
+        self.assertIn("chat_id", result.state_patch["out"]["_error"])
+        self.assertIn("_details", result.state_patch["out"])
 
     async def test_empty_state_key_no_patch(self) -> None:
         result = await self.cap.execute(request({"operation": "describe", "state_key": ""}))
         self.assertEqual(result.state_patch, {})
+
+    async def test_echo_state_non_success_without_error_is_noop(self) -> None:
+        from agent_core import Result, ResultStatus
+
+        result = Result(session_id="s", status=ResultStatus.PARTIAL)  # not success, no error
+        echoed = type(self.cap)._echo_state(result, {"state_key": "out"})
+        self.assertEqual(echoed.state_patch, {})
 
 
 class OutputSchemaTests(unittest.IsolatedAsyncioTestCase):
