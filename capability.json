@@ -1,0 +1,154 @@
+{
+  "id": "telegram.connector",
+  "name": "Telegram Connector",
+  "description": "Telegram chat connector for Corax: token-streamed replies, session and model commands, and clean HTML formatting (no stray ** markdown).",
+  "version": "1.0.0",
+  "author": "Corax",
+  "license": "MIT",
+  "homepage": "",
+  "tags": [
+    "bot",
+    "connector",
+    "messaging",
+    "streaming",
+    "telegram"
+  ],
+  "permission_level": "confirm",
+  "risk_level": "medium",
+  "side_effects": [
+    "network_request",
+    "send_message"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "operation": {
+        "type": "string"
+      },
+      "chat_id": {},
+      "text": {
+        "type": "string"
+      },
+      "message_id": {
+        "type": "integer"
+      },
+      "format": {
+        "type": "string"
+      },
+      "reply_to": {
+        "type": "integer"
+      },
+      "disable_preview": {
+        "type": "boolean"
+      },
+      "offset": {
+        "type": "integer"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "timeout": {
+        "type": "integer"
+      },
+      "last_sent_text": {
+        "type": "string"
+      },
+      "elapsed_ms": {
+        "type": "number"
+      },
+      "done": {
+        "type": "boolean"
+      },
+      "edit_interval_ms": {
+        "type": "integer"
+      },
+      "buffer_threshold": {
+        "type": "integer"
+      },
+      "base_url": {
+        "type": "string"
+      },
+      "request_timeout": {
+        "type": "number"
+      },
+      "mock": {
+        "type": "boolean"
+      },
+      "mock_updates": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "operation"
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "operation": {
+        "type": "string"
+      },
+      "ok": {
+        "type": "boolean"
+      },
+      "chat_id": {},
+      "format": {
+        "type": "string"
+      },
+      "parse_mode": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "message_id": {
+        "type": "integer"
+      },
+      "message_ids": {
+        "type": "array"
+      },
+      "messages": {
+        "type": "array"
+      },
+      "edited": {
+        "type": "boolean"
+      },
+      "should_edit": {
+        "type": "boolean"
+      },
+      "done": {
+        "type": "boolean"
+      },
+      "updates": {
+        "type": "array"
+      },
+      "count": {
+        "type": "integer"
+      },
+      "next_offset": {
+        "type": "integer"
+      },
+      "command": {
+        "type": "object"
+      },
+      "commands": {
+        "type": "array"
+      },
+      "operations": {
+        "type": "array"
+      },
+      "formats": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "operation",
+      "ok"
+    ]
+  },
+  "entrypoint": "main:TelegramConnector",
+  "dependencies": [],
+  "capability_type": "connector",
+  "min_core_version": "0.1.0",
+  "sdk_version": "0.1.0"
+}

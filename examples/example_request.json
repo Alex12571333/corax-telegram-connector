@@ -1,0 +1,17 @@
+{
+  "comment": "Stream a model reply into a Telegram message. Call 'stream' repeatedly with the growing 'text' as tokens arrive; pass the returned message_id and the text you last sent back in as message_id / last_sent_text. Set done=true on the final call to drop the cursor. The bot token is read from CORAX_TELEGRAM_BOT_TOKEN, never passed in input.",
+  "task_id": "task-demo-1",
+  "session_id": "session-demo-1",
+  "input": {
+    "operation": "stream",
+    "chat_id": 123456789,
+    "message_id": null,
+    "text": "Here is the answer so far with **bold** that renders cleanly",
+    "last_sent_text": "Here is the answer so far",
+    "elapsed_ms": 800,
+    "edit_interval_ms": 700,
+    "buffer_threshold": 60,
+    "done": false,
+    "format": "html"
+  }
+}

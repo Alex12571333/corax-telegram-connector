@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "corax-telegram-connector"
+version = "1.0.0"
+description = "Standalone Corax capability: Telegram chat connector with streaming, commands and clean HTML formatting."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Corax" }]
+keywords = ["corax", "agent", "capability", "telegram", "connector", "streaming", "bot"]
+dependencies = [
+  "agent-core @ git+https://github.com/Alex12571333/agent-core.git",
+  "agent-sdk @ git+https://github.com/Alex12571333/agent-sdk.git"
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+  "capability.json",
+  "main.py",
+  "README.md",
+  "examples/*.json"
+]
+
+[tool.coverage.run]
+branch = true
+source = ["main"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
