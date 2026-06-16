@@ -76,6 +76,9 @@
       },
       "mock_updates": {
         "type": "array"
+      },
+      "state_key": {
+        "type": "string"
       }
     },
     "required": [

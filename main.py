@@ -96,6 +96,7 @@ INPUT_SCHEMA = {
         "request_timeout": {"type": "number"},
         "mock": {"type": "boolean"},
         "mock_updates": {"type": "array"},
+        "state_key": {"type": "string"},
     },
     "required": ["operation"],
 }
@@ -391,7 +392,14 @@ class TelegramConnector(Capability):
             }.get(operation)
             if handler is None:
                 raise ValueError(f"unsupported operation {operation!r}")
-            return handler(request, data)
+            result = handler(request, data)
+            # Optional: mirror the payload into core session state so a
+            # kernel-driven caller (the agent gateway) can read it back via the
+            # StateManager. Off unless a non-empty ``state_key`` is given.
+            state_key = data.get("state_key")
+            if isinstance(state_key, str) and state_key and result.is_success:
+                result.state_patch = {state_key: result.payload}
+            return result
         except ValueError as exc:
             return _fail(request, ErrorCode.INVALID_INPUT, str(exc))
         except _SecurityError as exc:

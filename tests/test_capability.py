@@ -594,6 +594,25 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         status = await self.cap.health_check()
         self.assertEqual(status.value, "healthy")
 
+    # -- state_key echo (kernel/gateway round-trip) --------------------- #
+    async def test_state_key_echoes_payload(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "describe", "state_key": "out"})
+        )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(result.state_patch, {"out": result.payload})
+
+    async def test_state_key_ignored_on_failure(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "send", "text": "hi", "mock": True, "state_key": "out"})
+        )
+        self.assertEqual(result.status, ResultStatus.ERROR)  # missing chat_id
+        self.assertEqual(result.state_patch, {})
+
+    async def test_empty_state_key_no_patch(self) -> None:
+        result = await self.cap.execute(request({"operation": "describe", "state_key": ""}))
+        self.assertEqual(result.state_patch, {})
+
 
 if __name__ == "__main__":
     unittest.main()
