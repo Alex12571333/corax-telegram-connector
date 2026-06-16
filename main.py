@@ -108,9 +108,13 @@ OUTPUT_SCHEMA = {
         "ok": {"type": "boolean"},
         "chat_id": {},
         "format": {"type": "string"},
-        "parse_mode": {"type": "string"},
+        # parse_mode / message_id / next_offset are intentionally untyped: each
+        # is legitimately null in some replies (plain format, no message yet,
+        # empty poll). The core validates output by type, so a fixed type here
+        # would reject those valid null cases when run through the kernel.
+        "parse_mode": {},
         "text": {"type": "string"},
-        "message_id": {"type": "integer"},
+        "message_id": {},
         "message_ids": {"type": "array"},
         "messages": {"type": "array"},
         "edited": {"type": "boolean"},
@@ -118,7 +122,7 @@ OUTPUT_SCHEMA = {
         "done": {"type": "boolean"},
         "updates": {"type": "array"},
         "count": {"type": "integer"},
-        "next_offset": {"type": "integer"},
+        "next_offset": {},
         "command": {"type": "object"},
         "commands": {"type": "array"},
         "operations": {"type": "array"},

@@ -98,15 +98,11 @@
       "format": {
         "type": "string"
       },
-      "parse_mode": {
-        "type": "string"
-      },
+      "parse_mode": {},
       "text": {
         "type": "string"
       },
-      "message_id": {
-        "type": "integer"
-      },
+      "message_id": {},
       "message_ids": {
         "type": "array"
       },
@@ -128,9 +124,7 @@
       "count": {
         "type": "integer"
       },
-      "next_offset": {
-        "type": "integer"
-      },
+      "next_offset": {},
       "command": {
         "type": "object"
       },

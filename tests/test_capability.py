@@ -614,5 +614,49 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.state_patch, {})
 
 
+class OutputSchemaTests(unittest.IsolatedAsyncioTestCase):
+    """Every reply must satisfy the capability's own output_schema — that's what
+    the agent-core executor enforces when run through the kernel."""
+
+    async def asyncSetUp(self) -> None:
+        _scrub_env()
+        manifest = CapabilityManifest.load(PROJECT_ROOT)
+        self.cap = load_instance(manifest, PROJECT_ROOT, core_version="0.1.0")
+
+    async def asyncTearDown(self) -> None:
+        _scrub_env()
+
+    def _assert_schema_clean(self, payload: dict) -> None:
+        from agent_core import schema as core_schema
+
+        self.assertEqual(core_schema.validate(payload, self.cap.output_schema), [])
+
+    async def test_empty_poll_payload_is_schema_clean(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "poll", "mock": True, "mock_updates": []})
+        )
+        self.assertIsNone(result.payload["next_offset"])  # the regression
+        self._assert_schema_clean(result.payload)
+
+    async def test_plain_send_payload_is_schema_clean(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "send", "chat_id": 5, "text": "hi", "format": "plain", "mock": True})
+        )
+        self.assertIsNone(result.payload["parse_mode"])
+        self._assert_schema_clean(result.payload)
+
+    async def test_stream_not_edited_payload_is_schema_clean(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "stream", "chat_id": 5, "text": "x", "last_sent_text": "x", "mock": True})
+        )
+        self.assertFalse(result.payload["edited"])
+        self.assertIsNone(result.payload["message_id"])
+        self._assert_schema_clean(result.payload)
+
+    async def test_describe_payload_is_schema_clean(self) -> None:
+        result = await self.cap.execute(request({"operation": "describe"}))
+        self._assert_schema_clean(result.payload)
+
+
 if __name__ == "__main__":
     unittest.main()
