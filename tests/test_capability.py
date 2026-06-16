@@ -505,6 +505,33 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.payload["count"], 1)
         self.assertEqual(result.payload["updates"][0]["chat_id"], 9)
 
+    # -- chat_action (typing indicator) --------------------------------- #
+    async def test_chat_action_mock(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "chat_action", "chat_id": 5, "action": "typing", "mock": True})
+        )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(result.payload["action"], "typing")
+
+    async def test_chat_action_requires_chat_id(self) -> None:
+        result = await self.cap.execute(request({"operation": "chat_action", "mock": True}))
+        self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
+
+    async def test_chat_action_real_via_api(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", MagicMock(return_value={"ok": True, "result": True})) as api:
+            result = await self.cap.execute(
+                request({"operation": "chat_action", "chat_id": 5})
+            )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(api.call_args.kwargs["method"], "sendChatAction")
+
+    async def test_chat_action_api_error(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", MagicMock(side_effect=urllib.error.URLError("x"))):
+            result = await self.cap.execute(request({"operation": "chat_action", "chat_id": 5}))
+        self.assertEqual(result.error.code, ErrorCode.CAPABILITY_FAILED)
+
     # -- parse_command / format / describe ------------------------------ #
     async def test_parse_command_op(self) -> None:
         result = await self.cap.execute(

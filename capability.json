@@ -33,6 +33,9 @@
       "format": {
         "type": "string"
       },
+      "action": {
+        "type": "string"
+      },
       "reply_to": {
         "type": "integer"
       },

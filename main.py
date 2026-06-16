@@ -84,6 +84,7 @@ INPUT_SCHEMA = {
         # edit), so it must accept null — the kernel validates input by type.
         "message_id": {},
         "format": {"type": "string"},
+        "action": {"type": "string"},
         "reply_to": {"type": "integer"},
         "disable_preview": {"type": "boolean"},
         "offset": {"type": "integer"},
@@ -392,6 +393,7 @@ class TelegramConnector(Capability):
                 "edit": self._edit,
                 "stream": self._stream,
                 "poll": self._poll,
+                "chat_action": self._chat_action,
                 "parse_command": self._parse_command,
                 "format": self._format,
                 "describe": self._describe,
@@ -595,6 +597,27 @@ class TelegramConnector(Capability):
             },
         )
 
+    def _chat_action(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
+        """Send a chat action (e.g. 'typing') so the user sees the bot is working."""
+        mock = bool(data.get("mock", False))
+        token = _resolve_token(mock)
+        chat_id = _require_chat_id(data)
+        _check_chat_allowed(chat_id)
+        action = str(data.get("action", "typing"))
+        if not mock:
+            base_url = _resolve_base_url(data)
+            timeout = float(data.get("request_timeout", DEFAULT_REQUEST_TIMEOUT))
+            outcome = self._call_api_safe(
+                request, token, "sendChatAction",
+                {"chat_id": chat_id, "action": action}, base_url, timeout,
+            )
+            if isinstance(outcome, Result):
+                return outcome
+        return _ok(
+            request,
+            {"operation": "chat_action", "ok": True, "chat_id": chat_id, "action": action},
+        )
+
     def _poll(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
         mock = bool(data.get("mock", False))
         token = _resolve_token(mock)
@@ -684,7 +707,7 @@ class TelegramConnector(Capability):
             {
                 "operation": "describe",
                 "ok": True,
-                "operations": ["send", "edit", "stream", "poll", "parse_command", "format", "describe"],
+                "operations": ["send", "edit", "stream", "poll", "chat_action", "parse_command", "format", "describe"],
                 "commands": commands,
                 "formats": list(SUPPORTED_FORMATS),
                 "defaults": {
