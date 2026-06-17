@@ -2,9 +2,9 @@
 
 A standalone [Corax](https://github.com/Alex12571333/corax-agent) capability that
 gives an agent a **Telegram chat surface** — inspired by the Hermes agent's
-gateway: **token-streamed replies**, **session / runtime commands**, **model
-selection**, and **clean message formatting** (renders bold/italic/code, never
-shows literal `**`).
+gateway: **token-streamed replies**, **native bot menu commands**, **session /
+runtime commands**, **model selection**, and **clean message formatting**
+(renders bold/italic/code, never shows literal `**`).
 
 It is a pure capability package. It uses only the public contracts of
 `agent_core` (`Capability` / `Result`) and the `agent_sdk` manifest + loader, and
@@ -31,6 +31,7 @@ so it stays a well-behaved request/response capability.
 |---|---|
 | `poll` | long-poll `getUpdates`; each update is tagged with its parsed slash command |
 | `parse_command` | recognise `/new`, `/reload`, `/model`, `/help`, … (pure) |
+| `set_bot_commands` | publish the native Telegram menu button commands via `setMyCommands` |
 | `send` | deliver a formatted message (auto-splits past Telegram's 4096 limit) |
 | `edit` | edit an existing message |
 | `stream` | token streaming via Telegram drafts when available, with edit-in-place fallback |
@@ -67,13 +68,19 @@ the final call.
 | `/new`, `/reset` | `new_session` |
 | `/reload`, `/restart` | `reload_agent` |
 | `/model <name>` | `set_model` (args = model name) |
+| `/status` | `status` |
 | `/help`, `/start` | `help` (connector returns the help text) |
 | `/stop`, `/cancel` | `cancel` |
 
+The gateway should call `set_bot_commands` once on startup. Telegram then shows
+`/new`, `/reload`, `/model`, `/status`, and `/help` behind the native menu
+button in the composer; users do not need to type `/help` to discover controls.
+
 The connector recognises the command and returns a ready-to-send `reply`; the
-agent wires `new_session` / `reload_agent` / `set_model` to its runtime (e.g.
-`runtime.reload_config`, a fresh session, or `CORAX_LLM_MODEL`). Pairs naturally
-with [corax-llm-local-connector](https://github.com/Alex12571333/corax-llm-local-connector).
+agent wires `new_session` / `reload_agent` / `set_model` / `status` to its
+runtime (e.g. `runtime.reload_config`, a fresh session, current status, or
+`CORAX_LLM_MODEL`). Pairs naturally with
+[corax-llm-local-connector](https://github.com/Alex12571333/corax-llm-local-connector).
 
 ### Formatting (no stray `**`)
 

@@ -147,10 +147,23 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(out["command"], "help")
         self.assertIn("/new", out["reply"])
 
+    def test_status_command(self) -> None:
+        out = main.parse_command("/status")
+        self.assertEqual(out["command"], "status")
+        self.assertIsNone(out["reply"])
+
     def test_unknown_command(self) -> None:
         out = main.parse_command("/frobnicate now")
         self.assertEqual(out["command"], "unknown")
         self.assertEqual(out["args"], "now")
+
+    def test_normalise_bot_commands_defaults(self) -> None:
+        commands = main._normalise_bot_commands(None)
+        self.assertIn({"command": "status", "description": "Show Corax gateway status"}, commands)
+
+    def test_normalise_bot_commands_rejects_bad_name(self) -> None:
+        with self.assertRaises(ValueError):
+            main._normalise_bot_commands([{"command": "Bad-Name", "description": "x"}])
 
 
 class ManifestLoaderTests(unittest.TestCase):
@@ -727,6 +740,40 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             result = await self.cap.execute(request({"operation": "chat_action", "chat_id": 5}))
         self.assertEqual(result.error.code, ErrorCode.CAPABILITY_FAILED)
 
+    # -- set_bot_commands ---------------------------------------------- #
+    async def test_set_bot_commands_mock_uses_defaults(self) -> None:
+        result = await self.cap.execute(request({"operation": "set_bot_commands", "mock": True}))
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        names = {command["command"] for command in result.payload["commands"]}
+        self.assertEqual(names, {"new", "reload", "model", "status", "help"})
+
+    async def test_set_bot_commands_real_via_api(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", MagicMock(return_value={"ok": True, "result": True})) as api:
+            result = await self.cap.execute(
+                request(
+                    {
+                        "operation": "set_bot_commands",
+                        "commands": [{"command": "/new", "description": "Start fresh"}],
+                    }
+                )
+            )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(api.call_args.kwargs["method"], "setMyCommands")
+        self.assertEqual(api.call_args.kwargs["params"]["commands"][0]["command"], "new")
+
+    async def test_set_bot_commands_rejects_invalid_menu(self) -> None:
+        result = await self.cap.execute(
+            request(
+                {
+                    "operation": "set_bot_commands",
+                    "commands": [{"command": "bad-name", "description": "no"}],
+                    "mock": True,
+                }
+            )
+        )
+        self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
+
     # -- parse_command / format / describe ------------------------------ #
     async def test_parse_command_op(self) -> None:
         result = await self.cap.execute(
@@ -749,9 +796,11 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, ResultStatus.SUCCESS)
         self.assertIn("stream", result.payload["operations"])
         self.assertIn("send_document", result.payload["operations"])
+        self.assertIn("set_bot_commands", result.payload["operations"])
         self.assertIn("html", result.payload["formats"])
         names = {c["command"] for c in result.payload["commands"]}
-        self.assertEqual(names, {"/new", "/reload", "/model", "/help"})
+        self.assertEqual(names, {"/new", "/reload", "/model", "/status", "/help"})
+        self.assertIn("bot_menu_commands", result.payload)
 
     # -- real network path + error handling (via _call_api) ------------- #
     async def test_real_call_api_via_urlopen(self) -> None:

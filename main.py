@@ -13,8 +13,9 @@ The capability is the Telegram *I/O + formatting + command brain*; an agent
 loop drives it:
 
 * ``poll``           -- long-poll ``getUpdates`` and tag incoming slash commands
-* ``parse_command``  -- recognise ``/new``, ``/reload``, ``/model``, ``/help`` …
+* ``parse_command``  -- recognise ``/new``, ``/reload``, ``/model``, ``/status`` …
 * ``send`` / ``edit``-- deliver a (formatted) message or edit one
+* ``set_bot_commands`` -- publish the native Telegram menu button commands
 * ``stream``         -- token streaming via Telegram ``sendMessageDraft`` when
                         available, with edit-in-place fallback
 * ``format``         -- markdown -> Telegram HTML (renders bold/italic/code,
@@ -109,6 +110,7 @@ INPUT_SCHEMA = {
         "request_timeout": {"type": "number"},
         "mock": {"type": "boolean"},
         "mock_updates": {"type": "array"},
+        "commands": {"type": "array"},
         "state_key": {"type": "string"},
     },
     "required": ["operation"],
@@ -147,6 +149,16 @@ OUTPUT_SCHEMA = {
     "required": ["operation", "ok"],
 }
 
+# Native Telegram command menu. Telegram shows these behind the menu button in
+# the composer, so users do not need to type /help just to discover controls.
+BOT_MENU_COMMANDS = [
+    {"command": "new", "description": "Start a fresh chat session"},
+    {"command": "reload", "description": "Reload Corax runtime and config"},
+    {"command": "model", "description": "Show or switch the active model"},
+    {"command": "status", "description": "Show Corax gateway status"},
+    {"command": "help", "description": "Show a compact command reference"},
+]
+
 # Slash command vocabulary. Each maps to a normalized action the *agent* runs,
 # plus a ready-to-send confirmation for the simple ones.
 _COMMANDS = {
@@ -157,16 +169,17 @@ _COMMANDS = {
     "reload": ("reload_agent", "♻️ Reloading the agent…"),
     "restart": ("reload_agent", "♻️ Reloading the agent…"),
     "model": ("set_model", None),
+    "status": ("status", None),
     "stop": ("cancel", "🛑 Cancelled."),
     "cancel": ("cancel", "🛑 Cancelled."),
 }
 
 _HELP_TEXT = (
-    "Commands:\n"
-    "/new — start a new session\n"
-    "/reload — reload the agent\n"
-    "/model <name> — switch model (no name shows the current one)\n"
-    "/help — show this help"
+    "Corax menu:\n"
+    "/new — start a fresh session\n"
+    "/reload — reload runtime and config\n"
+    "/model <name> — switch model (no name shows current)\n"
+    "/status — show gateway status"
 )
 
 
@@ -332,6 +345,23 @@ def parse_command(text: object) -> dict[str, Any]:
     return {"is_command": True, "command": action, "name": name, "args": args, "reply": reply}
 
 
+def _normalise_bot_commands(raw_commands: object) -> list[dict[str, str]]:
+    """Return Telegram-compatible command records for setMyCommands."""
+    source = raw_commands if isinstance(raw_commands, list) else BOT_MENU_COMMANDS
+    commands: list[dict[str, str]] = []
+    for item in source:
+        if not isinstance(item, dict):
+            raise ValueError("each command must be an object")
+        command = str(item.get("command", "")).strip().lstrip("/").lower()
+        description = str(item.get("description", "")).strip()
+        if not re.fullmatch(r"[a-z0-9_]{1,32}", command):
+            raise ValueError("command names must be 1-32 chars: a-z, 0-9, underscore")
+        if not description or len(description) > 256:
+            raise ValueError("command descriptions must be 1-256 chars")
+        commands.append({"command": command, "description": description})
+    return commands
+
+
 # --------------------------------------------------------------------------- #
 # Environment-backed setup
 # --------------------------------------------------------------------------- #
@@ -408,6 +438,7 @@ class TelegramConnector(Capability):
                 "stream": self._stream,
                 "poll": self._poll,
                 "chat_action": self._chat_action,
+                "set_bot_commands": self._set_bot_commands,
                 "parse_command": self._parse_command,
                 "format": self._format,
                 "describe": self._describe,
@@ -741,6 +772,38 @@ class TelegramConnector(Capability):
             {"operation": "chat_action", "ok": True, "chat_id": chat_id, "action": action},
         )
 
+    def _set_bot_commands(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
+        """Publish the native Telegram command menu shown behind the bot menu button."""
+        mock = bool(data.get("mock", False))
+        token = _resolve_token(mock)
+        raw_commands = data.get("commands")
+        commands = _normalise_bot_commands(raw_commands)
+        if not commands:
+            raise ValueError("commands must contain at least one command")
+
+        if not mock:
+            base_url = _resolve_base_url(data)
+            timeout = float(data.get("request_timeout", DEFAULT_REQUEST_TIMEOUT))
+            outcome = self._call_api_safe(
+                request,
+                token,
+                "setMyCommands",
+                {"commands": commands},
+                base_url,
+                timeout,
+            )
+            if isinstance(outcome, Result):
+                return outcome
+        return _ok(
+            request,
+            {
+                "operation": "set_bot_commands",
+                "ok": True,
+                "commands": commands,
+                "count": len(commands),
+            },
+        )
+
     def _poll(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
         mock = bool(data.get("mock", False))
         token = _resolve_token(mock)
@@ -823,7 +886,7 @@ class TelegramConnector(Capability):
 
     def _describe(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
         commands = []
-        for name in ("new", "reload", "model", "help"):
+        for name in ("new", "reload", "model", "status", "help"):
             action, _ = _COMMANDS[name]
             commands.append({"command": f"/{name}", "action": action})
         return _ok(
@@ -838,11 +901,13 @@ class TelegramConnector(Capability):
                     "stream",
                     "poll",
                     "chat_action",
+                    "set_bot_commands",
                     "parse_command",
                     "format",
                     "describe",
                 ],
                 "commands": commands,
+                "bot_menu_commands": list(BOT_MENU_COMMANDS),
                 "formats": list(SUPPORTED_FORMATS),
                 "defaults": {
                     "edit_interval_ms": DEFAULT_EDIT_INTERVAL_MS,
