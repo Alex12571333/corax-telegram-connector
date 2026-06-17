@@ -33,25 +33,30 @@ so it stays a well-behaved request/response capability.
 | `parse_command` | recognise `/new`, `/reload`, `/model`, `/help`, … (pure) |
 | `send` | deliver a formatted message (auto-splits past Telegram's 4096 limit) |
 | `edit` | edit an existing message |
-| `stream` | the throttled token-streaming step — edit-in-place with a live cursor |
+| `stream` | token streaming via Telegram drafts when available, with edit-in-place fallback |
 | `format` | markdown → Telegram HTML / plain text |
 | `describe` | self-describe operations, commands, formats and defaults |
 
 ### Streaming
 
-Call `stream` repeatedly as the model emits tokens, passing the growing `text`:
+Call `stream` repeatedly as the model emits tokens, passing the growing `text`.
+With `"transport": "auto"`, private chats use Telegram's native
+`sendMessageDraft` preview for smoother animation; groups and failed draft
+frames fall back to `sendMessage` + `editMessageText`.
 
 ```jsonc
 { "operation": "stream", "chat_id": 123, "message_id": null,
   "text": "partial answer…", "last_sent_text": "partial",
   "elapsed_ms": 800, "edit_interval_ms": 700, "buffer_threshold": 60,
+  "transport": "auto", "chat_type": "private", "draft_id": 12345,
   "done": false }
 ```
 
-It edits only when it's worth it — `done`, or `elapsed_ms ≥ edit_interval_ms`,
-or `≥ buffer_threshold` new chars — so you never hit Telegram's edit rate limit.
-A `▌` cursor is appended until the final `done: true` call. The response returns
-the `message_id` to reuse and whether it `edited`.
+It updates only when it's worth it — `done`, or `elapsed_ms ≥ edit_interval_ms`,
+or `≥ buffer_threshold` new chars. Draft frames return `message_id: null`; the
+final `done: true` call sends the real Telegram message that stays in history.
+Edit fallback returns the `message_id` to reuse and appends a `▌` cursor until
+the final call.
 
 ### Commands
 

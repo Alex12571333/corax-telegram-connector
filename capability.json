@@ -75,6 +75,15 @@
       "buffer_threshold": {
         "type": "integer"
       },
+      "transport": {
+        "type": "string"
+      },
+      "chat_type": {
+        "type": "string"
+      },
+      "draft_id": {
+        "type": "integer"
+      },
       "base_url": {
         "type": "string"
       },
@@ -131,6 +140,10 @@
       "done": {
         "type": "boolean"
       },
+      "transport_used": {
+        "type": "string"
+      },
+      "draft_id": {},
       "updates": {
         "type": "array"
       },

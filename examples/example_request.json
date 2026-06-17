@@ -1,5 +1,5 @@
 {
-  "comment": "Stream a model reply into a Telegram message. Call 'stream' repeatedly with the growing 'text' as tokens arrive; pass the returned message_id and the text you last sent back in as message_id / last_sent_text. Set done=true on the final call to drop the cursor. The bot token is read from CORAX_TELEGRAM_BOT_TOKEN, never passed in input.",
+  "comment": "Stream a model reply into Telegram. transport=auto uses sendMessageDraft in private chats and falls back to editMessageText elsewhere; pass done=true on the final call to send the real persisted message. The bot token is read from CORAX_TELEGRAM_BOT_TOKEN, never passed in input.",
   "task_id": "task-demo-1",
   "session_id": "session-demo-1",
   "input": {
@@ -11,6 +11,9 @@
     "elapsed_ms": 800,
     "edit_interval_ms": 700,
     "buffer_threshold": 60,
+    "transport": "auto",
+    "chat_type": "private",
+    "draft_id": 12345,
     "done": false,
     "format": "html"
   }

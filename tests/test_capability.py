@@ -507,6 +507,130 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.payload["edited"])
         self.assertEqual(result.payload["message_id"], 7)
 
+    async def test_stream_auto_private_uses_message_draft(self) -> None:
+        calls = []
+
+        def fake_call(*, token, method, params, base_url, timeout):
+            calls.append((method, dict(params)))
+            return {"ok": True, "result": True}
+
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", fake_call):
+            result = await self.cap.execute(
+                request(
+                    {
+                        "operation": "stream",
+                        "chat_id": 5,
+                        "text": "hello",
+                        "transport": "auto",
+                        "chat_type": "private",
+                        "draft_id": 42,
+                        "elapsed_ms": 1000,
+                    }
+                )
+            )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertTrue(result.payload["edited"])
+        self.assertEqual(result.payload["transport_used"], "draft")
+        self.assertIsNone(result.payload["message_id"])
+        self.assertEqual(calls[0][0], "sendMessageDraft")
+        self.assertEqual(calls[0][1]["draft_id"], 42)
+        self.assertNotIn(main.STREAM_CURSOR, calls[0][1]["text"])
+
+    async def test_stream_done_after_draft_sends_real_message(self) -> None:
+        calls = []
+
+        def fake_call(*, token, method, params, base_url, timeout):
+            calls.append((method, dict(params)))
+            return {"ok": True, "result": {"message_id": 9}}
+
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", fake_call):
+            result = await self.cap.execute(
+                request(
+                    {
+                        "operation": "stream",
+                        "chat_id": 5,
+                        "text": "final",
+                        "transport": "auto",
+                        "chat_type": "private",
+                        "draft_id": 42,
+                        "done": True,
+                    }
+                )
+            )
+        self.assertEqual(calls[0][0], "sendMessage")
+        self.assertEqual(result.payload["message_id"], 9)
+        self.assertEqual(result.payload["transport_used"], "edit")
+
+    async def test_stream_auto_group_uses_edit_preview(self) -> None:
+        calls = []
+
+        def fake_call(*, token, method, params, base_url, timeout):
+            calls.append((method, dict(params)))
+            return {"ok": True, "result": {"message_id": 8}}
+
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", fake_call):
+            result = await self.cap.execute(
+                request(
+                    {
+                        "operation": "stream",
+                        "chat_id": -100,
+                        "text": "hello",
+                        "transport": "auto",
+                        "chat_type": "group",
+                        "draft_id": 42,
+                        "elapsed_ms": 1000,
+                    }
+                )
+            )
+        self.assertEqual(calls[0][0], "sendMessage")
+        self.assertEqual(result.payload["message_id"], 8)
+        self.assertEqual(result.payload["transport_used"], "edit")
+
+    async def test_stream_auto_falls_back_to_edit_when_draft_fails(self) -> None:
+        calls = []
+
+        def fake_call(*, token, method, params, base_url, timeout):
+            calls.append(method)
+            if method == "sendMessageDraft":
+                return {"ok": False, "description": "draft rejected"}
+            return {"ok": True, "result": {"message_id": 10}}
+
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", fake_call):
+            result = await self.cap.execute(
+                request(
+                    {
+                        "operation": "stream",
+                        "chat_id": 5,
+                        "text": "hello",
+                        "transport": "auto",
+                        "chat_type": "private",
+                        "draft_id": 42,
+                        "elapsed_ms": 1000,
+                    }
+                )
+            )
+        self.assertEqual(calls, ["sendMessageDraft", "sendMessage"])
+        self.assertEqual(result.payload["message_id"], 10)
+        self.assertEqual(result.payload["transport_used"], "edit")
+
+    async def test_stream_rejects_unknown_transport(self) -> None:
+        result = await self.cap.execute(
+            request(
+                {
+                    "operation": "stream",
+                    "chat_id": 5,
+                    "text": "hello",
+                    "transport": "warp",
+                    "mock": True,
+                }
+            )
+        )
+        self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
+
     async def test_stream_api_error_returns_fail(self) -> None:
         os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
         with patch.object(self.cap, "_call_api", MagicMock(side_effect=urllib.error.URLError("x"))):
@@ -524,7 +648,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
     # -- poll ----------------------------------------------------------- #
     async def test_poll_mock_updates_tags_commands(self) -> None:
         updates = [
-            {"update_id": 11, "message": {"text": "/new", "chat": {"id": 5}}},
+            {"update_id": 11, "message": {"text": "/new", "chat": {"id": 5, "type": "private"}}},
             {"update_id": 12, "edited_message": {"text": "hi", "chat": {"id": 5}}},
         ]
         result = await self.cap.execute(
@@ -532,6 +656,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.payload["count"], 2)
         self.assertEqual(result.payload["updates"][0]["command"]["command"], "new_session")
+        self.assertEqual(result.payload["updates"][0]["chat_type"], "private")
         self.assertEqual(result.payload["next_offset"], 13)
 
     async def test_poll_mock_update_without_update_id(self) -> None:

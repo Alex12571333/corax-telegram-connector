@@ -15,8 +15,8 @@ loop drives it:
 * ``poll``           -- long-poll ``getUpdates`` and tag incoming slash commands
 * ``parse_command``  -- recognise ``/new``, ``/reload``, ``/model``, ``/help`` …
 * ``send`` / ``edit``-- deliver a (formatted) message or edit one
-* ``stream``         -- the throttled token-streaming step (edit-in-place with a
-                        cursor), so the model's answer appears live
+* ``stream``         -- token streaming via Telegram ``sendMessageDraft`` when
+                        available, with edit-in-place fallback
 * ``format``         -- markdown -> Telegram HTML (renders bold/italic/code,
                         never shows literal ``**``)
 * ``describe``       -- self-describe operations, commands and formats
@@ -34,6 +34,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -101,6 +102,9 @@ INPUT_SCHEMA = {
         "done": {"type": "boolean"},
         "edit_interval_ms": {"type": "integer"},
         "buffer_threshold": {"type": "integer"},
+        "transport": {"type": "string"},
+        "chat_type": {"type": "string"},
+        "draft_id": {"type": "integer"},
         "base_url": {"type": "string"},
         "request_timeout": {"type": "number"},
         "mock": {"type": "boolean"},
@@ -130,6 +134,8 @@ OUTPUT_SCHEMA = {
         "edited": {"type": "boolean"},
         "should_edit": {"type": "boolean"},
         "done": {"type": "boolean"},
+        "transport_used": {"type": "string"},
+        "draft_id": {},
         "updates": {"type": "array"},
         "count": {"type": "integer"},
         "next_offset": {},
@@ -608,10 +614,20 @@ class TelegramConnector(Capability):
         threshold = int(data.get("buffer_threshold", DEFAULT_BUFFER_THRESHOLD))
         message_id = data.get("message_id")
         fmt = str(data.get("format", DEFAULT_FORMAT))
+        transport = str(data.get("transport", "edit")).lower()
+        if transport not in {"auto", "draft", "edit", "off"}:
+            raise ValueError("transport must be one of: auto, draft, edit, off")
+        chat_type = str(data.get("chat_type", "")).lower()
+        draft_id = data.get("draft_id")
+        if draft_id is not None and not isinstance(draft_id, int):
+            raise ValueError("draft_id must be an integer")
 
         changed = text != last_sent
         pending = max(0, len(text) - len(last_sent))
         should_edit = done or (changed and (elapsed_ms >= interval or pending >= threshold))
+
+        if transport == "off":
+            should_edit = False
 
         if not should_edit or (done and not text.strip() and message_id is None):
             return _ok(
@@ -624,12 +640,53 @@ class TelegramConnector(Capability):
                     "chat_id": chat_id,
                     "message_id": message_id,
                     "done": done,
+                    "transport_used": "off" if transport == "off" else "none",
+                    "draft_id": draft_id,
                 },
             )
 
         token = _resolve_token(mock)
         base_url = _resolve_base_url(data)
         timeout = float(data.get("request_timeout", DEFAULT_REQUEST_TIMEOUT))
+        use_draft = (
+            not done
+            and message_id is None
+            and transport in {"auto", "draft"}
+            and chat_type in {"private", "dm"}
+        )
+        if use_draft and draft_id in (None, 0):
+            draft_id = int(time.time() * 1000) % 2_147_000_000 or 1
+
+        if use_draft:
+            rendered, parse_mode = render(text, fmt)
+            params = {"chat_id": chat_id, "draft_id": draft_id, "text": rendered}
+            if parse_mode:
+                params["parse_mode"] = parse_mode
+            result = self._dispatch_message(
+                request, mock, token, "sendMessageDraft", params, base_url, timeout
+            )
+            if isinstance(result, Result):
+                if transport == "draft":
+                    return result
+                # Native drafts are best-effort. If the API rejects them, fall
+                # back to the regular edit-based preview for this frame.
+            else:
+                return _ok(
+                    request,
+                    {
+                        "operation": "stream",
+                        "ok": True,
+                        "edited": True,
+                        "should_edit": True,
+                        "chat_id": chat_id,
+                        "message_id": None,
+                        "sent_text": text,
+                        "done": done,
+                        "transport_used": "draft",
+                        "draft_id": draft_id,
+                    },
+                )
+
         display = text if done else f"{text}{STREAM_CURSOR}"
         rendered, parse_mode = render(display, fmt)
 
@@ -658,6 +715,8 @@ class TelegramConnector(Capability):
                 "message_id": result.get("message_id", message_id),
                 "sent_text": text,
                 "done": done,
+                "transport_used": "edit",
+                "draft_id": draft_id,
             },
         )
 
@@ -719,6 +778,7 @@ class TelegramConnector(Capability):
                 {
                     "update_id": update_id,
                     "chat_id": chat.get("id"),
+                    "chat_type": chat.get("type"),
                     "text": text,
                     "command": parse_command(text),
                 }
