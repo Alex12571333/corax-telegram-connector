@@ -136,7 +136,6 @@ OUTPUT_SCHEMA = {
         "done": {"type": "boolean"},
         "transport_used": {"type": "string"},
         "draft_id": {},
-        "draft_cleaned": {"type": "boolean"},
         "updates": {"type": "array"},
         "count": {"type": "integer"},
         "next_offset": {},
@@ -655,13 +654,6 @@ class TelegramConnector(Capability):
             and transport in {"auto", "draft"}
             and chat_type in {"private", "dm"}
         )
-        cleanup_draft = (
-            done
-            and message_id is None
-            and draft_id not in (None, 0)
-            and transport in {"auto", "draft"}
-            and chat_type in {"private", "dm"}
-        )
         if use_draft and draft_id in (None, 0):
             draft_id = int(time.time() * 1000) % 2_147_000_000 or 1
 
@@ -695,19 +687,6 @@ class TelegramConnector(Capability):
                     },
                 )
 
-        draft_cleaned = False
-        if cleanup_draft:
-            cleanup = self._dispatch_message(
-                request,
-                mock,
-                token,
-                "sendMessageDraft",
-                {"chat_id": chat_id, "draft_id": draft_id, "text": ""},
-                base_url,
-                timeout,
-            )
-            draft_cleaned = not isinstance(cleanup, Result)
-
         display = text if done else f"{text}{STREAM_CURSOR}"
         rendered, parse_mode = render(display, fmt)
 
@@ -738,7 +717,6 @@ class TelegramConnector(Capability):
                 "done": done,
                 "transport_used": "edit",
                 "draft_id": draft_id,
-                "draft_cleaned": draft_cleaned,
             },
         )
 

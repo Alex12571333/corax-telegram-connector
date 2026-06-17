@@ -55,9 +55,6 @@ frames fall back to `sendMessage` + `editMessageText`.
 It updates only when it's worth it — `done`, or `elapsed_ms ≥ edit_interval_ms`,
 or `≥ buffer_threshold` new chars. Draft frames return `message_id: null`; the
 final `done: true` call sends the real Telegram message that stays in history.
-Before that final send, the connector best-effort clears the draft with an
-empty `sendMessageDraft` frame to avoid Telegram clients leaving draft layout
-space behind.
 Edit fallback returns the `message_id` to reuse and appends a `▌` cursor until
 the final call.
 

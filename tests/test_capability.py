@@ -542,8 +542,6 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         def fake_call(*, token, method, params, base_url, timeout):
             calls.append((method, dict(params)))
-            if method == "sendMessageDraft":
-                return {"ok": True, "result": True}
             return {"ok": True, "result": {"message_id": 9}}
 
         os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
@@ -561,40 +559,9 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
                     }
                 )
             )
-        self.assertEqual([method for method, _params in calls], ["sendMessageDraft", "sendMessage"])
-        self.assertEqual(calls[0][1]["text"], "")
-        self.assertEqual(calls[0][1]["draft_id"], 42)
+        self.assertEqual(calls[0][0], "sendMessage")
         self.assertEqual(result.payload["message_id"], 9)
         self.assertEqual(result.payload["transport_used"], "edit")
-        self.assertTrue(result.payload["draft_cleaned"])
-
-    async def test_stream_done_after_draft_ignores_cleanup_failure(self) -> None:
-        calls = []
-
-        def fake_call(*, token, method, params, base_url, timeout):
-            calls.append(method)
-            if method == "sendMessageDraft":
-                return {"ok": False, "description": "cleanup rejected"}
-            return {"ok": True, "result": {"message_id": 9}}
-
-        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
-        with patch.object(self.cap, "_call_api", fake_call):
-            result = await self.cap.execute(
-                request(
-                    {
-                        "operation": "stream",
-                        "chat_id": 5,
-                        "text": "final",
-                        "transport": "auto",
-                        "chat_type": "private",
-                        "draft_id": 42,
-                        "done": True,
-                    }
-                )
-            )
-        self.assertEqual(calls, ["sendMessageDraft", "sendMessage"])
-        self.assertEqual(result.payload["message_id"], 9)
-        self.assertFalse(result.payload["draft_cleaned"])
 
     async def test_stream_auto_group_uses_edit_preview(self) -> None:
         calls = []
