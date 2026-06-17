@@ -29,6 +29,15 @@
       "text": {
         "type": "string"
       },
+      "path": {
+        "type": "string"
+      },
+      "caption": {
+        "type": "string"
+      },
+      "filename": {
+        "type": "string"
+      },
       "message_id": {},
       "format": {
         "type": "string"
@@ -109,6 +118,9 @@
       },
       "messages": {
         "type": "array"
+      },
+      "document": {
+        "type": "object"
       },
       "edited": {
         "type": "boolean"

@@ -30,11 +30,14 @@ environment and is never echoed back to the caller.
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
+from pathlib import Path
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from typing import Any
 
 from agent_core import (
@@ -80,6 +83,9 @@ INPUT_SCHEMA = {
         "operation": {"type": "string"},
         "chat_id": {},
         "text": {"type": "string"},
+        "path": {"type": "string"},
+        "caption": {"type": "string"},
+        "filename": {"type": "string"},
         # message_id is null until the first message exists (streaming's first
         # edit), so it must accept null — the kernel validates input by type.
         "message_id": {},
@@ -120,6 +126,7 @@ OUTPUT_SCHEMA = {
         "message_id": {},
         "message_ids": {"type": "array"},
         "messages": {"type": "array"},
+        "document": {"type": "object"},
         "edited": {"type": "boolean"},
         "should_edit": {"type": "boolean"},
         "done": {"type": "boolean"},
@@ -390,6 +397,7 @@ class TelegramConnector(Capability):
             operation = data["operation"]
             handler = {
                 "send": self._send,
+                "send_document": self._send_document,
                 "edit": self._edit,
                 "stream": self._stream,
                 "poll": self._poll,
@@ -491,6 +499,62 @@ class TelegramConnector(Capability):
                 "message_ids": [m["message_id"] for m in messages],
                 "messages": messages,
                 "count": len(messages),
+            },
+        )
+
+    def _send_document(self, request: CapabilityRequest, data: dict[str, Any]) -> Result:
+        mock = bool(data.get("mock", False))
+        token = _resolve_token(mock)
+        chat_id = _require_chat_id(data)
+        _check_chat_allowed(chat_id)
+        raw_path = data.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            raise ValueError("path must be a non-empty string")
+        path = Path(raw_path).expanduser()
+        if not mock:
+            if not path.is_file():
+                raise ValueError("path must point to an existing file")
+            if not os.access(path, os.R_OK):
+                raise ValueError("path must point to a readable file")
+
+        filename = data.get("filename")
+        if not isinstance(filename, str) or not filename.strip():
+            filename = path.name
+        params: dict[str, Any] = {"chat_id": chat_id}
+        caption = data.get("caption")
+        if isinstance(caption, str) and caption.strip():
+            params["caption"] = caption
+        reply_to = data.get("reply_to")
+        if reply_to is not None:
+            params["reply_to_message_id"] = reply_to
+
+        if mock:
+            result = {"message_id": 1, "document": {"file_name": filename}, "mock": True}
+        else:
+            base_url = _resolve_base_url(data)
+            timeout = float(data.get("request_timeout", DEFAULT_REQUEST_TIMEOUT))
+            result = self._call_api_multipart_safe(
+                request,
+                token,
+                "sendDocument",
+                params,
+                "document",
+                path,
+                filename,
+                base_url,
+                timeout,
+            )
+            if isinstance(result, Result):
+                return result
+
+        return _ok(
+            request,
+            {
+                "operation": "send_document",
+                "ok": True,
+                "chat_id": chat_id,
+                "message_id": result.get("message_id"),
+                "document": result.get("document", {"file_name": filename}),
             },
         )
 
@@ -707,7 +771,17 @@ class TelegramConnector(Capability):
             {
                 "operation": "describe",
                 "ok": True,
-                "operations": ["send", "edit", "stream", "poll", "chat_action", "parse_command", "format", "describe"],
+                "operations": [
+                    "send",
+                    "send_document",
+                    "edit",
+                    "stream",
+                    "poll",
+                    "chat_action",
+                    "parse_command",
+                    "format",
+                    "describe",
+                ],
                 "commands": commands,
                 "formats": list(SUPPORTED_FORMATS),
                 "defaults": {
@@ -784,6 +858,64 @@ class TelegramConnector(Capability):
         result = response.get("result")
         return result if isinstance(result, dict) else response
 
+    def _call_api_multipart_safe(
+        self,
+        request: CapabilityRequest,
+        token: str,
+        method: str,
+        params: dict[str, Any],
+        file_field: str,
+        path: Path,
+        filename: str,
+        base_url: str,
+        timeout: float,
+    ) -> dict[str, Any] | Result:
+        try:
+            response = self._call_api_multipart(
+                token=token,
+                method=method,
+                params=params,
+                file_field=file_field,
+                path=path,
+                filename=filename,
+                base_url=base_url,
+                timeout=timeout,
+            )
+        except urllib.error.HTTPError as exc:
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API returned an HTTP error",
+                details={"status": exc.code, "method": method},
+                retryable=True,
+            )
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API request failed",
+                details={"method": method},
+                retryable=True,
+            )
+        except json.JSONDecodeError:
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API returned invalid JSON",
+                details={"method": method},
+                retryable=True,
+            )
+        if not response.get("ok", False):
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API rejected the request",
+                details={"method": method, "description": response.get("description")},
+                retryable=False,
+            )
+        result = response.get("result")
+        return result if isinstance(result, dict) else response
+
     def _call_api(
         self,
         *,
@@ -800,6 +932,51 @@ class TelegramConnector(Capability):
             data=body,
             method="POST",
             headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(http_request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _call_api_multipart(
+        self,
+        *,
+        token: str,
+        method: str,
+        params: dict[str, Any],
+        file_field: str,
+        path: Path,
+        filename: str,
+        base_url: str,
+        timeout: float,
+    ) -> dict[str, Any]:
+        endpoint = f"{base_url.rstrip('/')}/bot{token}/{method}"
+        boundary = f"corax-{uuid.uuid4().hex}"
+        body = bytearray()
+        for key, value in params.items():
+            body.extend(f"--{boundary}\r\n".encode("utf-8"))
+            body.extend(
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8")
+            )
+            body.extend(str(value).encode("utf-8"))
+            body.extend(b"\r\n")
+
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            (
+                f'Content-Disposition: form-data; name="{file_field}"; '
+                f'filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+        )
+        body.extend(path.read_bytes())
+        body.extend(b"\r\n")
+        body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+
+        http_request = urllib.request.Request(
+            endpoint,
+            data=bytes(body),
+            method="POST",
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         )
         with urllib.request.urlopen(http_request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))

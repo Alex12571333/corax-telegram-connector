@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -259,6 +260,68 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result.status, ResultStatus.SUCCESS)
         self.assertGreater(result.payload["count"], 1)
+
+    # -- send_document -------------------------------------------------- #
+    async def test_send_document_mock(self) -> None:
+        result = await self.cap.execute(
+            request(
+                {
+                    "operation": "send_document",
+                    "chat_id": 5,
+                    "path": "test.txt",
+                    "caption": "File",
+                    "mock": True,
+                }
+            )
+        )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(result.payload["message_id"], 1)
+        self.assertEqual(result.payload["document"]["file_name"], "test.txt")
+
+    async def test_send_document_real_via_multipart(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "report.txt"
+            path.write_text("hello", encoding="utf-8")
+            with patch.object(
+                self.cap,
+                "_call_api_multipart",
+                MagicMock(
+                    return_value={
+                        "ok": True,
+                        "result": {
+                            "message_id": 9,
+                            "document": {"file_name": "report.txt"},
+                        },
+                    }
+                ),
+            ) as api:
+                result = await self.cap.execute(
+                    request(
+                        {
+                            "operation": "send_document",
+                            "chat_id": 5,
+                            "path": str(path),
+                        }
+                    )
+                )
+        self.assertEqual(result.status, ResultStatus.SUCCESS)
+        self.assertEqual(result.payload["message_id"], 9)
+        self.assertEqual(api.call_args.kwargs["method"], "sendDocument")
+        self.assertEqual(api.call_args.kwargs["path"], path)
+
+    async def test_send_document_requires_path(self) -> None:
+        result = await self.cap.execute(
+            request({"operation": "send_document", "chat_id": 5, "mock": True})
+        )
+        self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
+
+    async def test_send_document_requires_existing_file(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        result = await self.cap.execute(
+            request({"operation": "send_document", "chat_id": 5, "path": "/nope.txt"})
+        )
+        self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
 
     # -- security ------------------------------------------------------- #
     async def test_chat_allowlist_denies(self) -> None:
@@ -553,6 +616,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
         result = await self.cap.execute(request({"operation": "describe"}))
         self.assertEqual(result.status, ResultStatus.SUCCESS)
         self.assertIn("stream", result.payload["operations"])
+        self.assertIn("send_document", result.payload["operations"])
         self.assertIn("html", result.payload["formats"])
         names = {c["command"] for c in result.payload["commands"]}
         self.assertEqual(names, {"/new", "/reload", "/model", "/help"})
