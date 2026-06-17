@@ -144,6 +144,9 @@
         "type": "string"
       },
       "draft_id": {},
+      "draft_cleaned": {
+        "type": "boolean"
+      },
       "updates": {
         "type": "array"
       },
