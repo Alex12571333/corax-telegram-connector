@@ -883,6 +883,14 @@ class TelegramConnector(Capability):
             response = self._call_api(
                 token=token, method=method, params=params, base_url=base_url, timeout=timeout
             )
+        except KeyboardInterrupt:
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API request interrupted",
+                details={"method": method, "interrupted": True},
+                retryable=True,
+            )
         except urllib.error.HTTPError as exc:
             return _fail(
                 request,
@@ -940,6 +948,14 @@ class TelegramConnector(Capability):
                 filename=filename,
                 base_url=base_url,
                 timeout=timeout,
+            )
+        except KeyboardInterrupt:
+            return _fail(
+                request,
+                ErrorCode.CAPABILITY_FAILED,
+                "telegram API request interrupted",
+                details={"method": method, "interrupted": True},
+                retryable=True,
             )
         except urllib.error.HTTPError as exc:
             return _fail(

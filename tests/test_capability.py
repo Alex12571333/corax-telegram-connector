@@ -679,6 +679,13 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
             result = await self.cap.execute(request({"operation": "poll", "timeout": 0}))
         self.assertEqual(result.error.code, ErrorCode.CAPABILITY_FAILED)
 
+    async def test_poll_keyboard_interrupt_returns_fail(self) -> None:
+        os.environ["CORAX_TELEGRAM_BOT_TOKEN"] = "T"
+        with patch.object(self.cap, "_call_api", MagicMock(side_effect=KeyboardInterrupt)):
+            result = await self.cap.execute(request({"operation": "poll", "timeout": 0}))
+        self.assertEqual(result.error.code, ErrorCode.CAPABILITY_FAILED)
+        self.assertTrue(result.error.details["interrupted"])
+
     async def test_poll_invalid_timeout(self) -> None:
         result = await self.cap.execute(request({"operation": "poll", "timeout": 999, "mock": True}))
         self.assertEqual(result.error.code, ErrorCode.INVALID_INPUT)
